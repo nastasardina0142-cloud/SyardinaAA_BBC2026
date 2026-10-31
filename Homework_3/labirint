@@ -1,0 +1,757 @@
+import random
+import copy
+import os
+import sys
+import time
+
+# ============================================================
+# ЦВЕТА
+# ============================================================
+class C:
+    RESET = "\033[0m"
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    MAGENTA = "\033[95m"
+    CYAN = "\033[96m"
+    WHITE = "\033[97m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+
+def clear():
+    os.system("cls" if os.name == "nt" else "clear")
+
+# ============================================================
+# ТИПЫ КОМНАТ И ИКОНКИ
+# ============================================================
+EMPTY = "empty"
+CHEST = "chest"
+MONSTER = "monster"
+TRAP = "trap"
+KEY = "key"
+PORTAL = "portal"
+EXIT = "exit"
+
+SYMBOLS = {
+    EMPTY:   ("·",  "пустая"),
+    CHEST:   ("🎁", "сундук"),
+    MONSTER: ("🐉", "дракон"),
+    TRAP:    ("⚠️", "ловушка"),
+    KEY:     ("🔑", "ключ"),
+    PORTAL:  ("🌀", "портал"),
+    EXIT:    ("🚪", "выход"),
+}
+
+PLAYER_ICON = "👤"
+UNKNOWN_ICON = "❓"
+HEART_FULL = "❤️"
+HEART_EMPTY = "🖤"
+
+# ============================================================
+# HP В ВИДЕ СЕРДЕЧЕК
+# ============================================================
+def hearts(current, maximum, color=C.RED):
+    current = max(0, min(current, maximum))
+    full = HEART_FULL * current
+    empty = HEART_EMPTY * (maximum - current)
+    return f"{full}{empty} {color}({current}/{maximum}){C.RESET}"
+
+# ============================================================
+# ПРЕДМЕТ
+# ============================================================
+class Item:
+    def __init__(self, name, value=0, kind="misc", bonus=None, icon="📦"):
+        self.name = name
+        self.value = value
+        self.kind = kind
+        self.bonus = bonus or {}
+        self.icon = icon
+
+    def __repr__(self):
+        return f"{self.icon} {self.name}"
+
+# ============================================================
+# ИНВЕНТАРЬ
+# ============================================================
+class Inventory:
+    def __init__(self):
+        self.items = []
+
+    def add(self, item): self.items.append(item)
+    def add_many(self, items): self.items.extend(items)
+    def remove_by_name(self, name):
+        for i, it in enumerate(self.items):
+            if it.name == name:
+                return self.items.pop(i)
+        return None
+    def pop_last(self): return self.items.pop() if self.items else None
+    def sort_by_value(self, descending=True):
+        self.items.sort(key=lambda it: it.value, reverse=descending)
+    def has(self, name): return any(it.name == name for it in self.items)
+    def find_index(self, name):
+        names = [it.name for it in self.items]
+        return names.index(name) if name in names else -1
+    def shallow_copy(self): return self.items.copy()
+    def slice_copy(self, s, e): return self.items[s:e]
+    def deep_copy(self): return copy.deepcopy(self.items)
+    def weapons(self): return [it for it in self.items if it.kind == "sword"]
+    def potions(self): return [it for it in self.items if it.kind == "potion"]
+    def total_value(self): return sum(it.value for it in self.items)
+    def names(self): return [it.name for it in self.items]
+    def __len__(self): return len(self.items)
+
+# ============================================================
+# ИГРОК
+# ============================================================
+class Player:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.hp = 10
+        self.max_hp = 10
+        self.inventory = Inventory()
+        self.has_key = False
+        self.has_ruby = False
+        self.key_combined = False
+        self.princess_saved = False
+        self.gold = 0
+        self.food = 0
+        self.defending = False
+
+    def attack_power(self):
+        base = 2 if any(it.kind == "sword" for it in self.inventory.items) else 1
+        for it in self.inventory.items:
+            if it.kind == "sword":
+                base += it.bonus.get("damage", 0) - 2
+        return max(1, base)
+
+# ============================================================
+# ДРАКОН
+# ============================================================
+class Dragon:
+    def __init__(self):
+        self.name = "🐉 Древний Дракон"
+        self.hp = 8
+        self.max_hp = 8
+        self.attacks = [
+            ("🔥 Огненное дыхание", 2),
+            ("🦷 Укус",             1),
+            ("🌀 Удар хвостом",     1),
+            ("💨 Рёв ужаса",        1),
+        ]
+
+    def choose_attack(self): return random.choice(self.attacks)
+    def is_alive(self): return self.hp > 0
+
+# ============================================================
+# ЭКРАН СМЕРТИ — завершение и новый лабиринт
+# ============================================================
+def game_over(reason=""):
+    """Показывает экран смерти. Игрок выбирает — заново или выйти."""
+    clear()
+    print()
+    print(C.BOLD + C.RED + "╔" + "═" * 58 + "╗" + C.RESET)
+    print(C.BOLD + C.RED + "║" + " " * 58 + "║" + C.RESET)
+    print(C.BOLD + C.RED + "║" + C.BOLD + C.RED +
+          "                    💀  ВЫ ПОГИБЛИ  💀                  ".center(58) +
+          C.RESET + C.BOLD + C.RED + "║" + C.RESET)
+    print(C.BOLD + C.RED + "║" + " " * 58 + "║" + C.RESET)
+    print(C.BOLD + C.RED + "╚" + "═" * 58 + "╝" + C.RESET)
+    print()
+    if reason:
+        print(C.YELLOW + f"  Причина: {reason}" + C.RESET)
+    print()
+    print(C.CYAN + "  Лабиринт будет сгенерирован заново." + C.RESET)
+    print()
+    print("  1) 🔄 Начать заново")
+    print("  2) 🚪 Выйти из игры")
+    choice = input("  > ").strip()
+
+    if choice == "2":
+        print(C.DIM + "Выход из игры." + C.RESET)
+        sys.exit(0)
+    # по умолчанию — заново
+    return play()  # НОВЫЙ ЛАБИРИНТ
+
+# ============================================================
+# АНИМАЦИЯ БОЯ
+# ============================================================
+def battle_banner():
+    clear()
+    print(C.BOLD + C.RED + "=" * 55 + C.RESET)
+    print(C.BOLD + C.RED + "          ⚔️   БИТВА С ДРАКОНОМ   ⚔️" + C.RESET)
+    print(C.BOLD + C.RED + "=" * 55 + C.RESET)
+
+def show_battle_status(player, dragon, log):
+    battle_banner()
+    print(f"  👤 {C.BOLD}ВЫ{C.RESET}")
+    print(f"     {hearts(player.hp, player.max_hp, color=C.GREEN)}")
+    print(f"     ⚔️  Урон: {player.attack_power()}   "
+          f"🧪 Зелья: {len(player.inventory.potions())}")
+    print()
+    print(f"  {dragon.name}")
+    print(f"     {hearts(dragon.hp, dragon.max_hp, color=C.RED)}")
+    print()
+    print("-" * 55)
+    for line in log[-6:]:
+        print("  " + line)
+    print("-" * 55)
+
+# ============================================================
+# БОЙ С ДРАКОНОМ
+# ============================================================
+def fight_dragon(player):
+    dragon = Dragon()
+    log = ["⚔️  Дракон преграждает путь! Принцесса в заложниках!"]
+
+    while dragon.is_alive() and player.hp > 0:
+        show_battle_status(player, dragon, log)
+        print()
+        print("  Действия:")
+        print("    1) ⚔️  Атаковать")
+        print("    2) 🛡️  Защититься (урон вдвое)")
+        print("    3) 🧪 Выпить зелье")
+        print("    4) 🔮 Магия (нужен кристалл)")
+        print("    5) 🏃 Попытаться сбежать")
+        choice = input("  > ").strip()
+
+        player.defending = False
+        skip_dragon_turn = False
+
+        if choice == "1":
+            if random.random() < 0.1:
+                log.append(C.YELLOW + "👤 Вы промахнулись!" + C.RESET)
+            else:
+                dmg = player.attack_power()
+                crit = random.random() < 0.2
+                if crit: dmg *= 2
+                dragon.hp -= dmg
+                crit_text = C.BOLD + C.YELLOW + " КРИТ!" + C.RESET if crit else ""
+                log.append(C.GREEN + f"👤 Вы нанесли {dmg} урона!{crit_text}" + C.RESET)
+
+        elif choice == "2":
+            player.defending = True
+            log.append(C.CYAN + "👤 Вы встали в защиту (урон вдвое)" + C.RESET)
+
+        elif choice == "3":
+            potions = player.inventory.potions()
+            if potions:
+                player.inventory.remove_by_name(potions[0].name)
+                heal = 4
+                player.hp = min(player.max_hp, player.hp + heal)
+                log.append(C.GREEN + f"🧪 Вы выпили зелье! +{heal} ❤️" + C.RESET)
+            else:
+                log.append(C.DIM + "🧪 Зелий нет!" + C.RESET)
+                skip_dragon_turn = True
+
+        elif choice == "4":
+            if player.inventory.has("Кристалл"):
+                player.inventory.remove_by_name("Кристалл")
+                dmg = random.randint(4, 6)
+                dragon.hp -= dmg
+                log.append(C.MAGENTA + f"🔮 Магия! {dmg} урона!" + C.RESET)
+            else:
+                log.append(C.DIM + "🔮 Нет кристалла!" + C.RESET)
+                skip_dragon_turn = True
+
+        elif choice == "5":
+            if random.random() < 0.5:
+                log.append(C.YELLOW + "🏃 Вы сбежали из боя!" + C.RESET)
+                show_battle_status(player, dragon, log)
+                input("  Enter...")
+                return False
+            else:
+                log.append(C.RED + "🏃 Побег не удался!" + C.RESET)
+
+        else:
+            log.append(C.DIM + "Неизвестное действие" + C.RESET)
+            skip_dragon_turn = True
+
+        if dragon.hp <= 0:
+            dragon.hp = 0
+            break
+
+        if skip_dragon_turn:
+            continue
+
+        time.sleep(0.4)
+        atk_name, atk_dmg = dragon.choose_attack()
+        if player.defending:
+            atk_dmg = max(1, atk_dmg // 2)
+            log.append(C.RED + f"{dragon.name}: {atk_name} на {atk_dmg} (защита)" + C.RESET)
+        else:
+            log.append(C.RED + f"{dragon.name}: {atk_name} на {atk_dmg}" + C.RESET)
+        player.hp -= atk_dmg
+
+    show_battle_status(player, dragon, log)
+
+    # ============================
+    # 💀 СМЕРТЬ В БОЮ
+    # ============================
+    if player.hp <= 0:
+        print()
+        print(C.BOLD + C.RED + "💀 Вы пали в бою с драконом..." + C.RESET)
+        input("  Enter...")
+        game_over("Вы пали в бою с 🐉 драконом")  # ← новый лабиринт
+
+    print()
+    print(C.BOLD + C.GREEN + "🎉 Дракон побеждён! 🎉" + C.RESET)
+    time.sleep(0.8)
+    print(C.YELLOW + "👸 Принцесса выходит из темницы..." + C.RESET)
+    time.sleep(0.8)
+    print(C.GREEN + "👸 «Спасибо, герой! Возьми этот 💎 Рубин.»" + C.RESET)
+    time.sleep(0.6)
+    print(C.GREEN + "👸 «Соедини его с 🔑 Ключом в инвентаре," + C.RESET)
+    print(C.GREEN + "    чтобы открыть 🚪 дверь выхода.»" + C.RESET)
+    player.princess_saved = True
+    player.has_ruby = True
+    player.inventory.add(Item("Рубин", value=150, kind="ruby", icon="💎"))
+    player.inventory.add(Item("Зелье", value=40, kind="potion", icon="🧪"))
+    print(C.CYAN + "🧪 Вы нашли зелье в сокровищнице дракона!" + C.RESET)
+    print()
+    print(C.BOLD + C.YELLOW + "📌 Задача: найти 🔑 Ключ, соединить с 💎 Рубином," + C.RESET)
+    print(C.BOLD + C.YELLOW + "   затем найти 🚪 выход." + C.RESET)
+    input("  Enter...")
+    return True
+
+# ============================================================
+# ЛАБИРИНТ
+# ============================================================
+class Maze:
+    def __init__(self, rows, cols):
+        self.rows = rows
+        self.cols = cols
+        self.grid = [[EMPTY for _ in range(cols)] for _ in range(rows)]
+        self.portal_map = {}
+        self.generate()
+
+    def free_cells(self):
+        return [(r, c) for r in range(self.rows) for c in range(self.cols)
+                if self.grid[r][c] == EMPTY]
+
+    def place(self, room_type):
+        cells = self.free_cells()
+        if not cells: return None
+        r, c = random.choice(cells)
+        self.grid[r][c] = room_type
+        return (r, c)
+
+    def generate(self):
+        self.monster_pos = self.place(MONSTER)
+        self.key_pos = self.place(KEY)
+        self.chest_pos = self.place(CHEST)
+        self.trap_pos = self.place(TRAP)
+        self.portal_positions = []
+        for _ in range(3):
+            p = self.place(PORTAL)
+            if p: self.portal_positions.append(p)
+        self.exit_pos = self.place(EXIT)
+        if len(self.portal_positions) == 3:
+            self.portal_map[self.portal_positions[0]] = "exit"
+            self.portal_map[self.portal_positions[1]] = "monster"
+            self.portal_map[self.portal_positions[2]] = "key"
+
+# ============================================================
+# ВИЗУАЛИЗАЦИЯ
+# ============================================================
+def render(maze, player, visited, message=""):
+    clear()
+    print(C.BOLD + "=" * 60 + C.RESET)
+    print(C.BOLD + "  🏰  ЛАБИРИНТ  🏰" + C.RESET)
+    print(C.BOLD + "=" * 60 + C.RESET)
+    print(f"  {hearts(player.hp, player.max_hp, color=C.RED)}")
+    print(f"  💰 Золото: {C.YELLOW}{player.gold}{C.RESET}   "
+          f"🍞 Еда: {player.food}")
+    inv_str = "  ".join(f"{it.icon}{it.name}" for it in player.inventory.items)
+    print(f"  🎒 Инвентарь: {inv_str if inv_str else C.DIM + 'пусто' + C.RESET}")
+    flags = []
+    if player.has_key: flags.append("🔑")
+    if player.has_ruby: flags.append("💎")
+    if player.key_combined: flags.append("🔓")
+    if player.princess_saved: flags.append("👸")
+    print(f"  📜 Статус: {' '.join(flags) if flags else '—'}")
+
+    if player.key_combined:
+        goal = "🚪 Найти выход и открыть дверь!"
+    elif player.has_ruby and player.has_key:
+        goal = "🎒 Соединить 🔑 Ключ + 💎 Рубин в инвентаре (клавиша I)!"
+    elif player.has_ruby:
+        goal = "🔑 Найти Ключ в комнате с ключом!"
+    elif player.princess_saved:
+        goal = "🔑 Найти Ключ!"
+    else:
+        goal = "🐉 Победить дракона и спасти принцессу!"
+    print(f"  🎯 Цель: {C.YELLOW}{goal}{C.RESET}")
+    print("-" * 60)
+
+    for r in range(maze.rows):
+        row_str = ""
+        for c in range(maze.cols):
+            if (r, c) == (player.x, player.y):
+                row_str += PLAYER_ICON + " "
+            elif (r, c) in visited:
+                sym, _ = SYMBOLS[maze.grid[r][c]]
+                row_str += sym + " "
+            else:
+                row_str += UNKNOWN_ICON + " "
+        print(row_str)
+    print("-" * 60)
+    if message:
+        print(C.CYAN + message + C.RESET)
+    print(C.DIM + "W/A/S/D — движение, I — инвентарь, Q — выход" + C.RESET)
+
+# ============================================================
+# ИНВЕНТАРЬ (МЕНЮ)
+# ============================================================
+def show_inventory(player):
+    clear()
+    print(C.BOLD + "🎒 ИНВЕНТАРЬ" + C.RESET)
+    print(f"  {hearts(player.hp, player.max_hp, color=C.RED)}")
+    print()
+    if not player.inventory.items:
+        print(C.DIM + "пусто" + C.RESET)
+    else:
+        for i, it in enumerate(player.inventory.items):
+            print(f"  {i+1}. {it.icon} {it.name} (значимость={it.value}, тип={it.kind})")
+    print()
+
+    if player.has_key and player.has_ruby and not player.key_combined:
+        print(C.BOLD + C.YELLOW + "💡 У вас есть 🔑 Ключ и 💎 Рубин!" + C.RESET)
+        print(C.BOLD + C.YELLOW + "   Выберите пункт 4, чтобы соединить их." + C.RESET)
+        print()
+
+    print("  1) отсортировать по значимости (sort/reverse)")
+    print("  2) выбросить предмет (pop/remove)")
+    print("  3) улучшить меч кристаллом")
+    print("  4) 🔓 соединить ключ с рубином")
+    print("  5) shallow copy / slice / deepcopy демо")
+    print("  6) список мечей (list comprehension)")
+    print("  0) назад")
+    choice = input("> ").strip()
+
+    if choice == "1":
+        player.inventory.sort_by_value(); print("Отсортировано!"); input("Enter...")
+    elif choice == "2":
+        if player.inventory.items:
+            name = input("Имя предмета: ").strip()
+            removed = player.inventory.remove_by_name(name)
+            print(f"Выброшено: {removed}" if removed else "Не найдено")
+        input("Enter...")
+    elif choice == "3":
+        if player.inventory.has("Кристалл") and player.inventory.has("Меч"):
+            player.inventory.remove_by_name("Кристалл")
+            for it in player.inventory.items:
+                if it.kind == "sword":
+                    it.bonus["damage"] = it.bonus.get("damage", 2) + 10
+                    it.value += 50
+                    it.name = "Меч +10 урона"
+                    it.icon = "⚔️"
+            print("Меч улучшен!")
+        else:
+            print("Нужен Кристалл и Меч")
+        input("Enter...")
+    elif choice == "4":
+        if player.key_combined:
+            print(C.DIM + "Уже соединено!" + C.RESET)
+        elif player.has_key and player.has_ruby:
+            print()
+            print(C.BOLD + "🔑 + 💎 = ..." + C.RESET)
+            time.sleep(0.6)
+            print(C.YELLOW + "   ✨ Ключ начинает светиться... ✨" + C.RESET)
+            time.sleep(0.6)
+            print(C.MAGENTA + "   💫 Рубин вращается вокруг ключа... 💫" + C.RESET)
+            time.sleep(0.6)
+            print(C.GREEN + C.BOLD + "   🔓 КЛЮЧ С РУБИНОМ СОЗДАН!" + C.RESET)
+            time.sleep(0.5)
+            player.inventory.remove_by_name("Ключ")
+            player.inventory.remove_by_name("Рубин")
+            player.inventory.add(Item("Ключ с рубином", value=200, kind="key", icon="🔓"))
+            player.key_combined = True
+            print()
+            print(C.CYAN + "🎯 Теперь найдите 🚪 выход, чтобы выбраться!" + C.RESET)
+        else:
+            print(C.RED + "❌ Нужны и 🔑 Ключ, и 💎 Рубин!" + C.RESET)
+            if not player.has_key:
+                print(C.DIM + "   У вас нет ключа." + C.RESET)
+            if not player.has_ruby:
+                print(C.DIM + "   У вас нет рубина." + C.RESET)
+        input("Enter...")
+    elif choice == "5":
+        sc = player.inventory.shallow_copy()
+        sl = player.inventory.slice_copy(0, min(2, len(player.inventory)))
+        dc = player.inventory.deep_copy()
+        print(f"shallow copy: {sc}")
+        print(f"slice [0:2]:  {sl}")
+        print(f"deepcopy:     {dc}")
+        if sc: print(C.YELLOW + "⚠ shallow copy ссылается на те же объекты!" + C.RESET)
+        input("Enter...")
+    elif choice == "6":
+        print(f"Мечи: {player.inventory.weapons()}"); input("Enter...")
+
+# ============================================================
+# ЛОВУШКА — 3+ ОШИБКИ = СМЕРТЬ
+# ============================================================
+def trap_room(player):
+    print(C.MAGENTA + "⚠️  ЛОВУШКА! Реши 5 примеров." + C.RESET)
+    print(C.RED + "💀 Внимание: 3 ошибки — смерть!" + C.RESET)
+    print(f"  Ваше здоровье: {hearts(player.hp, player.max_hp, color=C.GREEN)}")
+    print()
+
+    mistakes = 0
+
+    for i in range(5):
+        a, b = random.randint(1, 20), random.randint(1, 20)
+        op = random.choice(["+", "-", "*"])
+        ans = a + b if op == "+" else a - b if op == "-" else a * b
+
+        print(f"  Ошибок: {mistakes}/2   ❤️  Осталось: {player.hp}/{player.max_hp}")
+        try:
+            user = int(input(f"  Пример {i+1}/5: {a} {op} {b} = "))
+        except ValueError:
+            user = None
+
+        if user == ans:
+            if random.random() < 0.5:
+                player.gold += random.randint(5, 15)
+                print(C.GREEN + "  ✅ Верно! 💰 +золото" + C.RESET)
+            else:
+                player.food += 1
+                print(C.GREEN + "  ✅ Верно! 🍞 +еда" + C.RESET)
+        else:
+            mistakes += 1
+            player.hp -= 1
+            print(C.RED + f"  ❌ Неверно! Ответ: {ans}." + C.RESET)
+            print(C.RED + f"  -1 ❤️  Теперь: {hearts(player.hp, player.max_hp, color=C.RED)}" + C.RESET)
+            print(C.RED + f"  Ошибок: {mistakes}/2" + C.RESET)
+
+            # ============================
+            # 💀 СМЕРТЬ ОТ 3+ ОШИБОК
+            # ============================
+            if mistakes > 2:
+                print()
+                print(C.BOLD + C.RED + "💀💀💀 ТРИ ОШИБКИ! ЛОВУШКА УБИВАЕТ ВАС!" + C.RESET)
+                time.sleep(1.5)
+                game_over("Три ошибки в комнате с ⚠️ ловушкой")  # ← новый лабиринт
+
+            # ============================
+            # 💀 СМЕРТЬ ОТ HP = 0
+            # ============================
+            if player.hp <= 0:
+                print(C.BOLD + C.RED + "💀 Здоровье закончилось..." + C.RESET)
+                time.sleep(1.5)
+                game_over("Здоровье закончилось в комнате с ⚠️ ловушкой")
+
+    input("  Enter...")
+    return True
+
+# ============================================================
+# ФИНАЛЬНАЯ СЦЕНА
+# ============================================================
+def victory_scene(player):
+    frames = [
+        f"""
+        🚪  Вы подходите к двери...
+             {PLAYER_ICON}         🚪
+        """,
+        f"""
+        🚪  Вставляете 🔓 ключ в замок...
+             {PLAYER_ICON}   🔓 →  🚪
+        """,
+        f"""
+        🚪  Замок щёлкает... ✨
+             {PLAYER_ICON}   ✨      🚪
+        """,
+        f"""
+        🚪  Дверь медленно открывается!  🚪
+             {PLAYER_ICON}   💡      🚪
+        """,
+    ]
+    for f in frames:
+        clear()
+        print(C.BOLD + C.YELLOW + "=" * 60 + C.RESET)
+        print(C.BOLD + C.YELLOW + "                    🏰  ВЫХОД  🏰" + C.RESET)
+        print(C.BOLD + C.YELLOW + "=" * 60 + C.RESET)
+        print(C.YELLOW + f + C.RESET)
+        time.sleep(1.2)
+
+    for _ in range(3):
+        clear()
+        print(C.BOLD + C.GREEN + "=" * 60 + C.RESET)
+        print(C.BOLD + C.GREEN + "              ✨  С В Е Т   С В О Б О Д Ы  ✨" + C.RESET)
+        print(C.BOLD + C.GREEN + "=" * 60 + C.RESET)
+        time.sleep(0.3)
+        clear()
+        print(C.BOLD + C.WHITE + "=" * 60 + C.RESET)
+        print(C.BOLD + C.WHITE + "              ✨  С В Е Т   С В О Б О Д Ы  ✨" + C.RESET)
+        print(C.BOLD + C.WHITE + "=" * 60 + C.RESET)
+        time.sleep(0.3)
+
+    clear()
+    print()
+    print(C.BOLD + C.GREEN + "╔" + "═" * 58 + "╗" + C.RESET)
+    print(C.BOLD + C.GREEN + "║" + " " * 58 + "║" + C.RESET)
+    print(C.BOLD + C.GREEN + "║" + C.BOLD + C.YELLOW +
+          "        🏆  ЧЕМПИОН, ТЫ НАШЁЛ ВЫХОД!  🏆        ".center(58) +
+          C.RESET + C.BOLD + C.GREEN + "║" + C.RESET)
+    print(C.BOLD + C.GREEN + "║" + " " * 58 + "║" + C.RESET)
+    print(C.BOLD + C.GREEN + "╚" + "═" * 58 + "╝" + C.RESET)
+    print()
+    time.sleep(1)
+
+    print(C.YELLOW + f"""
+                 {PLAYER_ICON}         👸
+
+          👸 Принцесса: «Ты — настоящий герой!» 💖
+    """ + C.RESET)
+    time.sleep(0.8)
+    print(C.CYAN + "  👸 «Ты спас меня из лап дракона, собрал ключ" + C.RESET)
+    print(C.CYAN + "     с рубином и выбрался из лабиринта!»" + C.RESET)
+    time.sleep(0.5)
+    print()
+    print(C.MAGENTA + "  👸 «Пусть о твоём подвиге слагают легенды!»" + C.RESET)
+    print()
+    time.sleep(0.5)
+    print(C.BOLD + C.YELLOW + "  🎉 🎉 🎉   " + PLAYER_ICON + " — ГЕРОЙ!   🎉 🎉 🎉" + C.RESET)
+    print(C.BOLD + C.YELLOW + "  " + "=" * 54 + C.RESET)
+    print()
+    print(f"  Здоровье: {hearts(player.hp, player.max_hp, color=C.RED)}")
+    print(f"  💰 Золото:    {player.gold}")
+    print(f"  🍞 Еда:       {player.food}")
+    print(f"  🎒 Предметы:  {', '.join(it.icon + it.name for it in player.inventory.items)}")
+    print()
+    print(C.BOLD + C.GREEN + "  ═══════════════════════════════════════════════" + C.RESET)
+    print(C.BOLD + C.GREEN + "       🏆  ЧЕМПИОН, ТЫ НАШЁЛ ВЫХОД!  🏆" + C.RESET)
+    print(C.BOLD + C.GREEN + "  ═══════════════════════════════════════════════" + C.RESET)
+    print()
+    input("  Нажмите Enter, чтобы выйти...")
+
+# ============================================================
+# ОСНОВНАЯ ИГРА
+# ============================================================
+def play():
+    rows, cols = random.randint(5, 7), random.randint(5, 7)
+    maze = Maze(rows, cols)
+    start = random.choice(maze.free_cells() or [(0, 0)])
+    player = Player(start[0], start[1])
+
+    player.inventory.add(Item("Меч", value=50, kind="sword",
+                              bonus={"damage": 2}, icon="⚔️"))
+    player.inventory.add(Item("Кристалл", value=30, kind="crystal", icon="🔮"))
+    player.inventory.add(Item("Зелье", value=40, kind="potion", icon="🧪"))
+
+    visited = {start}
+    message = "Вы очнулись в лабиринте..."
+
+    while True:
+        render(maze, player, visited, message)
+        message = ""
+
+        # ============================
+        # 💀 СМЕРТЬ ОТ HP = 0 (общая проверка)
+        # ============================
+        if player.hp <= 0:
+            game_over("Здоровье закончилось")  # ← новый лабиринт
+
+        cmd = input("> ").strip().lower()
+        if cmd == "q":
+            print("Выход из игры."); return
+        if cmd == "i":
+            show_inventory(player); continue
+
+        dx, dy = 0, 0
+        if cmd == "w":   dx = -1
+        elif cmd == "s": dx = 1
+        elif cmd == "a": dy = -1
+        elif cmd == "d": dy = 1
+        else:
+            message = "Неизвестная команда"; continue
+
+        nx, ny = player.x + dx, player.y + dy
+        if not (0 <= nx < maze.rows and 0 <= ny < maze.cols):
+            message = "🚧 Стена! Туда нельзя."; continue
+
+        player.x, player.y = nx, ny
+        visited.add((nx, ny))
+        room = maze.grid[nx][ny]
+
+        if room == EMPTY:
+            message = "Пустая комната."
+        elif room == CHEST:
+            if not player.inventory.has("Броня"):
+                player.inventory.add(Item("Броня", value=80, kind="armor", icon="🛡️"))
+                player.max_hp += 3
+                player.hp += 3
+                message = f"🎁 Сундук! Найдена 🛡️ Броня (+3 ❤️). Теперь: {hearts(player.hp, player.max_hp, color=C.GREEN)}"
+            else:
+                message = "Сундук пуст."
+        elif room == MONSTER:
+            if not player.princess_saved:
+                alive = fight_dragon(player)
+                if not alive: continue
+            message = "Дракон побеждён. 👸 Принцесса спасена!"
+        elif room == TRAP:
+            if trap_room(player):
+                message = "Ловушка пройдена."
+        elif room == KEY:
+            if not player.has_key:
+                player.has_key = True
+                player.inventory.add(Item("Ключ", value=120, kind="key", icon="🔑"))
+                message = "🔑 Вы нашли Ключ!"
+                if player.has_ruby:
+                    message += " 💡 Соедините с рубином в инвентаре (I)!"
+            else:
+                message = "Ключ уже взят."
+        elif room == PORTAL:
+            target = maze.portal_map.get((nx, ny))
+
+            if target == "exit":
+                message = "🌀 Портал... телепорт к выходу!"
+                player.x, player.y = maze.exit_pos
+                visited.add((player.x, player.y))
+                if player.key_combined:
+                    victory_scene(player)
+                    return
+
+            elif target == "monster":
+                if not player.princess_saved:
+                    message = "🌀 Портал переносит вас прямо к 🐉 дракону!"
+                    player.x, player.y = maze.monster_pos
+                    visited.add((player.x, player.y))
+                    render(maze, player, visited, message)
+                    time.sleep(1.2)
+                    alive = fight_dragon(player)
+                    if not alive:
+                        continue
+                    message = "Дракон побеждён. 👸 Принцесса спасена!"
+                else:
+                    message = "💀 Дракон уже мёртв."
+
+            elif target == "key":
+                if player.has_ruby and not player.has_key:
+                    message = "🌀 Портал к ключу!"
+                    player.x, player.y = maze.key_pos
+                    visited.add((player.x, player.y))
+                else:
+                    message = "Портал не сработал."
+
+        elif room == EXIT:
+            if player.key_combined:
+                victory_scene(player)
+                return
+            else:
+                if not player.princess_saved:
+                    message = "🚪 Дверь заперта. Сначала спасите 👸 принцессу!"
+                elif not player.has_ruby:
+                    message = "🚪 Дверь заперта. Нужен 💎 Рубин от принцессы."
+                elif not player.has_key:
+                    message = "🚪 Дверь заперта. Нужен 🔑 Ключ."
+                elif not player.key_combined:
+                    message = "🚪 Дверь заперта. Соедините 🔑 + 💎 в инвентаре (I)!"
+
+
+if __name__ == "__main__":
+    try:
+        play()
+    except KeyboardInterrupt:
+        print("\nИгра прервана.")
