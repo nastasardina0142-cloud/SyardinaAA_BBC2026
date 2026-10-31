@@ -1,0 +1,86 @@
+print ( "Выберите уровень!\nУровень 1\nУровень 2\nУровень 3\nУровень 4\nУровень 5")
+x = input()
+if (x == "Уровень 1"):
+    print("Выберите операциюю:\n1)upper()\n2)lower()\n3)capitalize")
+    text = str(input("Введите ваш текст\n"))
+    app = str(input("Ведите операцию\n"))
+    
+    def a(text, app):
+            if app == "upper()":
+                return text.upper()
+            elif app == "lower()":
+                return text.lower()
+            elif app == "capitalize()":
+                return text.capitalize()
+            else:
+                return "Неверный метод"
+    print (a(text, app))
+
+elif (x == "Уровень 2"):
+    print("Выберите операциюю:\n1)find()\n2)replace()\n3)count()\n4)index()")
+    text = str(input("Введите ваш текст\n"))
+    app = str(input("Ведите операцию\n"))
+    
+    def a(text, app):
+            if app == "find()":
+                return text.find()
+            elif app == "replace()":
+                return text.replace()
+            elif app == "count()":
+                return text.count()
+            elif app == "index()":
+                return text.index()
+            else:
+                return "Неверный метод"
+    print (a(text, app))
+    
+elif (x == "Уровень 3"):
+    print("Выберите операциюю:\n1)split()\n2)join()")
+    text = input("Введите ваш текст\n")
+    app = input("Ведите операцию\n")
+    
+    def a(text, app):
+            if app == "split()":
+                return text.split(app)
+            elif app == "join()":
+                return app.join(text)
+            else:
+                return "Неверный метод"
+    print (a(text, app))
+
+elif (x == "Уровень 4"):
+    print("Выберите операциюю:\n1)isdigit()\n2)isalpha()\n3)strip()\n4)format()\n5)r\n6)l\n7)f")
+    text = input("Введите ваш текст\n")
+    app = input("Ведите операцию\n")
+    
+    def a(text, app):
+        if app == isdigit():
+            return text.isdigit()
+        elif app == isalpha():
+            return text.isalpha()
+        elif app == strip():
+            return text.strip()
+        elif app == format():
+            return text.format()
+        elif app == 'r':
+            return text.word[::-1]
+        elif app == 'l':
+            return text.lower()
+        elif app == 'f':
+            return text.upper()
+        else:
+            return "Неверный метод"
+    print (a(text, app))
+
+elif (x == "Уровень 5"):
+    print("Комплексное преобразование строки")
+    text = input("Введите ваш текст\n")
+    
+    def a(text: str) -> str:
+        text = text.strip().capitalize()
+        text = text.replace(';', ' ')
+        text = text.replace('-', ' ')
+        text = text.replace('+', ' ')
+        words = text.split()
+        return ' '.join(words)
+    print (a(words))
