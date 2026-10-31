@@ -1,0 +1,44 @@
+import math
+
+class EngineeringCalculator:
+
+    def add(self, a, b):
+        return a + b
+    
+    def subtract(self, a, b):
+        return a - b
+    
+    def multiply(self, a, b):
+        return a * b
+    
+    def integer_divide(self, a, b):
+        if b == 0:
+            raise ZeroDivisionError("Деление на ноль невозможно")
+        return a // b
+    
+    def modulo(self, a, b):
+        if b == 0:
+            raise ZeroDivisionError("Деление на ноль невозможно")
+        return a % b
+    
+    def power(self, a, b):
+        return a ** b
+    
+    def sqrt(self, x):
+        if x < 0:
+            raise ValueError("Корень из отрицательного числа не определён")
+        return math.sqrt(x)
+    
+    def sin(self, x, degrees=False):
+        angle = math.radians(x) if degrees else x
+        return math.sin(angle)
+    
+    def cos(self, x, degrees=False):
+        angle = math.radians(x) if degrees else x
+        return math.cos(angle)
+    
+    def tan(self, x, degrees=False):
+        angle = math.radians(x) if degrees else x
+        if math.isclose(math.cos(angle), 0, abs_tol=1e-12):
+            raise ValueError("Тангенс не определён для данного угла")
+        return math.tan(angle)
