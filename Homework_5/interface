@@ -1,0 +1,411 @@
+import sys
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QComboBox,
+    QCheckBox,
+    QPushButton,
+    QMessageBox,
+    QFrame,
+    QInputDialog
+)
+from PyQt6.QtCore import Qt
+
+
+class DormPaymentApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("DormPay — Оплата общежития")
+        self.setMinimumSize(540, 620)
+
+        self.balance = 3000
+
+        self.tariffs = {
+            "Бюджетная основа — 850 ₽ / мес.": 850,
+            "Контрактная основа — 2 500 ₽ / мес.": 2500,
+            "Повышенная комфортность — 4 200 ₽ / мес.": 4200
+        }
+
+        self.init_ui()
+        self.apply_styles()
+
+    def init_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(24, 24, 24, 24)
+
+        header_layout = QHBoxLayout()
+
+        title_box = QVBoxLayout()
+        title_label = QLabel("DormPay Dashboard")
+        title_label.setObjectName("MainTitle")
+        subtitle_label = QLabel("Система оплаты проживания и услуг")
+        subtitle_label.setObjectName("SubTitle")
+        title_box.addWidget(title_label)
+        title_box.addWidget(subtitle_label)
+
+        header_layout.addLayout(title_box)
+        header_layout.addStretch()
+
+        wallet_card = QFrame()
+        wallet_card.setObjectName("WalletCard")
+        wallet_layout = QHBoxLayout(wallet_card)
+        wallet_layout.setContentsMargins(14, 10, 14, 10)
+        wallet_layout.setSpacing(12)
+
+        balance_info = QVBoxLayout()
+        balance_caption = QLabel("Виртуальный счет")
+        balance_caption.setObjectName("WalletCaption")
+        self.balance_label = QLabel(f"{self.balance:,} ₽".replace(",", " "))
+        self.balance_label.setObjectName("BalanceValue")
+        balance_info.addWidget(balance_caption)
+        balance_info.addWidget(self.balance_label)
+
+        self.topup_button = QPushButton("+ Пополнить")
+        self.topup_button.setObjectName("TopUpBtn")
+        self.topup_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        wallet_layout.addLayout(balance_info)
+        wallet_layout.addWidget(self.topup_button)
+        header_layout.addWidget(wallet_card)
+
+        main_layout.addLayout(header_layout)
+
+        form_card = QFrame()
+        form_card.setObjectName("Card")
+        form_card_layout = QVBoxLayout(form_card)
+        form_card_layout.setContentsMargins(20, 18, 20, 18)
+        form_card_layout.setSpacing(12)
+
+        section_title = QLabel("Параметры проживания")
+        section_title.setObjectName("SectionTitle")
+        form_card_layout.addWidget(section_title)
+
+        form_layout = QFormLayout()
+        form_layout.setSpacing(12)
+        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self.fio_input = QLineEdit()
+        self.fio_input.setPlaceholderText("Введите ФИО студента")
+
+        self.room_input = QLineEdit()
+        self.room_input.setPlaceholderText("Номер комнаты (например: 412)")
+
+        self.months_input = QLineEdit()
+        self.months_input.setPlaceholderText("Срок в месяцах (от 1 до 12)")
+
+        self.tariff_combo = QComboBox()
+        self.tariff_combo.addItems(self.tariffs.keys())
+
+        self.internet_check = QCheckBox("Высокоскоростной интернет (+300 ₽ / мес.)")
+        self.laundry_check = QCheckBox("Безлимитная прачечная (+200 ₽ / мес.)")
+
+        form_layout.addRow("Студент:", self.fio_input)
+        form_layout.addRow("Комната:", self.room_input)
+        form_layout.addRow("Тариф:", self.tariff_combo)
+        form_layout.addRow("Период:", self.months_input)
+        form_layout.addRow("Опции:", self.internet_check)
+        form_layout.addRow("", self.laundry_check)
+
+        form_card_layout.addLayout(form_layout)
+        main_layout.addWidget(form_card)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setSpacing(12)
+
+        self.calc_button = QPushButton("Рассчитать стоимость")
+        self.calc_button.setObjectName("SecondaryBtn")
+        self.calc_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.pay_button = QPushButton("Оплатить со счета")
+        self.pay_button.setObjectName("PrimaryBtn")
+        self.pay_button.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        buttons_layout.addWidget(self.calc_button)
+        buttons_layout.addWidget(self.pay_button)
+        main_layout.addLayout(buttons_layout)
+
+        result_card = QFrame()
+        result_card.setObjectName("ResultCard")
+        result_layout = QVBoxLayout(result_card)
+        result_layout.setContentsMargins(20, 16, 20, 16)
+
+        res_header = QLabel("Детализация платежа")
+        res_header.setObjectName("SectionTitle")
+        result_layout.addWidget(res_header)
+
+        self.result_label = QLabel("Заполните данные выше, чтобы рассчитать итоговую сумму к списанию.")
+        self.result_label.setObjectName("ResultText")
+        self.result_label.setWordWrap(True)
+        result_layout.addWidget(self.result_label)
+
+        main_layout.addWidget(result_card)
+
+        self.topup_button.clicked.connect(self.top_up_balance)
+        self.calc_button.clicked.connect(self.calculate_payment)
+        self.pay_button.clicked.connect(self.process_payment)
+
+    def apply_styles(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #090d24;
+            }
+            QLabel {
+                color: #c8d2f0;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                font-size: 13px;
+            }
+            QLabel#MainTitle {
+                color: #ffffff;
+                font-size: 20px;
+                font-weight: bold;
+            }
+            QLabel#SubTitle {
+                color: #6c7ba8;
+                font-size: 12px;
+            }
+            QLabel#SectionTitle {
+                color: #4cc9f0;
+                font-size: 14px;
+                font-weight: bold;
+                margin-bottom: 4px;
+            }
+            QFrame#Card, QFrame#ResultCard {
+                background-color: #11183c;
+                border: 1px solid #1e2a5e;
+                border-radius: 14px;
+            }
+            QFrame#WalletCard {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #2541b2, stop:1 #3b66f5);
+                border-radius: 12px;
+            }
+            QLabel#WalletCaption {
+                color: #d0dcff;
+                font-size: 11px;
+            }
+            QLabel#BalanceValue {
+                color: #ffffff;
+                font-size: 17px;
+                font-weight: bold;
+            }
+            QLineEdit, QComboBox {
+                background-color: #0b102b;
+                color: #ffffff;
+                border: 1px solid #283673;
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-size: 13px;
+            }
+            QLineEdit:focus, QComboBox:focus {
+                border: 1px solid #4cc9f0;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #11183c;
+                color: #ffffff;
+                selection-background-color: #3b66f5;
+            }
+            QCheckBox {
+                color: #c8d2f0;
+                font-size: 13px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                border: 1px solid #3b66f5;
+                background-color: #0b102b;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #4cc9f0;
+            }
+            QPushButton#TopUpBtn {
+                background-color: rgba(255, 255, 255, 0.2);
+                color: #ffffff;
+                border: 1px solid rgba(255, 255, 255, 0.4);
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton#TopUpBtn:hover {
+                background-color: rgba(255, 255, 255, 0.3);
+            }
+            QPushButton#SecondaryBtn {
+                background-color: #182252;
+                color: #4cc9f0;
+                border: 1px solid #2d3e8a;
+                border-radius: 10px;
+                padding: 11px;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton#SecondaryBtn:hover {
+                background-color: #202d6b;
+            }
+            QPushButton#PrimaryBtn {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #3b66f5, stop:1 #4cc9f0);
+                color: #070b1e;
+                border: none;
+                border-radius: 10px;
+                padding: 11px;
+                font-weight: bold;
+                font-size: 13px;
+            }
+            QPushButton#PrimaryBtn:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4d75f7, stop:1 #6ad4f5);
+            }
+            QLabel#ResultText {
+                color: #e2e8f0;
+                font-size: 13px;
+                line-height: 1.4;
+            }
+        """)
+
+    def update_balance_display(self):
+        self.balance_label.setText(f"{self.balance:,} ₽".replace(",", " "))
+
+    def top_up_balance(self):
+        amount, ok = QInputDialog.getInt(
+            self,
+            "Пополнение виртуального счета",
+            "Введите сумму пополнения (от 100 до 50 000 ₽):",
+            value=1000,
+            min=100,
+            max=50000,
+            step=100
+        )
+        if ok:
+            self.balance += amount
+            self.update_balance_display()
+            QMessageBox.information(
+                self,
+                    "Счет пополнен",
+                    f"Баланс успешно пополнен на {amount} ₽.\nТекущий баланс: {self.balance} ₽."
+            )
+
+    def validate_and_get_data(self):
+        fio = self.fio_input.text().strip()
+        room = self.room_input.text().strip()
+        months_text = self.months_input.text().strip()
+
+        if not fio:
+            self.show_error("Пожалуйста, укажите ФИО студента.")
+            return None
+
+        if not room.isdigit():
+            self.show_error("Номер комнаты должен состоять только из цифр.")
+            return None
+
+        if not months_text.isdigit():
+            self.show_error("Количество месяцев должно быть целым числом.")
+            return None
+
+        months = int(months_text)
+        if months < 1 or months > 12:
+            self.show_error("Укажите период оплаты от 1 до 12 месяцев.")
+            return None
+
+        tariff_name = self.tariff_combo.currentText()
+        base_rate = self.tariffs[tariff_name]
+
+        extras = 0
+        if self.internet_check.isChecked():
+            extras += 300
+        if self.laundry_check.isChecked():
+            extras += 200
+
+        total_per_month = base_rate + extras
+        total_sum = total_per_month * months
+
+        return {
+            "fio": fio,
+            "room": room,
+            "months": months,
+            "total_per_month": total_per_month,
+            "total_sum": total_sum
+        }
+
+    def calculate_payment(self):
+        data = self.validate_and_get_data()
+        if not data:
+            return
+
+        status = (
+            "Достаточно средств на счете"
+            if self.balance >= data["total_sum"]
+            else f"Не хватает {data['total_sum'] - self.balance} ₽ — пополните счет"
+        )
+
+        self.result_label.setText(
+            f"Плательщик: {data['fio']} (комната №{data['room']})\n"
+            f"Ежемесячный платеж: {data['total_per_month']} ₽ × {data['months']} мес.\n"
+            f"Итого к оплате: {data['total_sum']} ₽\n"
+            f"Статус баланса: {status}"
+        )
+
+    def process_payment(self):
+        data = self.validate_and_get_data()
+        if not data:
+            return
+
+        self.calculate_payment()
+
+        if self.balance < data["total_sum"]:
+            missing = data["total_sum"] - self.balance
+            reply = QMessageBox.warning(
+                self,
+                "Недостаточно средств",
+                f"На виртуальном счете не хватает {missing} ₽.\n"
+                f"Хотите пополнить счет сейчас?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.top_up_balance()
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Подтверждение списания",
+            f"Списать {data['total_sum']} ₽ с виртуального счета?\n"
+            f"Студент: {data['fio']} (комн. №{data['room']})",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.balance -= data["total_sum"]
+            self.update_balance_display()
+            self.result_label.setText(
+                f"ОПЛАЧЕНО: {data['total_sum']} ₽\n"
+                f"Студент: {data['fio']} (комната №{data['room']}), срок: {data['months']} мес.\n"
+                f"Остаток на виртуальном счете: {self.balance} ₽"
+            )
+            QMessageBox.information(
+                self,
+                "Оплата выполнена",
+                f"Платеж на сумму {data['total_sum']} ₽ успешно проведен!\n"
+                f"Новый баланс: {self.balance} ₽."
+            )
+
+    def show_error(self, message):
+        QMessageBox.warning(self, "Ошибка проверки данных", message)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = DormPaymentApp()
+    window.show()
+    sys.exit(app.exec())
+
