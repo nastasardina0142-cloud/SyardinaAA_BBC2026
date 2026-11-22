@@ -1,0 +1,300 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+
+
+class DormPaymentApp(tk.Tk):
+    BG = "#090d24"
+    CARD = "#11183c"
+    INPUT = "#0b102b"
+    BORDER = "#283673"
+    TEXT = "#c8d2f0"
+    MUTED = "#6c7ba8"
+    CYAN = "#4cc9f0"
+    BLUE = "#3b66f5"
+
+    def __init__(self):
+        super().__init__()
+        self.title("DormPay — Оплата общежития")
+        self.geometry("670x700")
+        self.minsize(600, 650)
+        self.configure(bg=self.BG)
+
+        self.balance = 3000
+        self.tariffs = {
+            "Бюджетная основа — 850 ₽ / мес.": 850,
+            "Контрактная основа — 2 500 ₽ / мес.": 2500,
+            "Повышенная комфортность — 4 200 ₽ / мес.": 4200,
+        }
+
+        self.fio_var = tk.StringVar()
+        self.room_var = tk.StringVar()
+        self.months_var = tk.StringVar()
+        self.tariff_var = tk.StringVar(value=next(iter(self.tariffs)))
+        self.internet_var = tk.BooleanVar(value=False)
+        self.laundry_var = tk.BooleanVar(value=False)
+        self.balance_var = tk.StringVar()
+        self.result_var = tk.StringVar(
+            value="Заполните данные выше, чтобы рассчитать итоговую сумму к списанию."
+        )
+
+        self._configure_styles()
+        self._build_ui()
+        self._update_balance()
+
+    def _configure_styles(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "Dorm.TCombobox",
+            fieldbackground=self.INPUT,
+            background=self.INPUT,
+            foreground="white",
+            arrowcolor=self.CYAN,
+            bordercolor=self.BORDER,
+            lightcolor=self.BORDER,
+            darkcolor=self.BORDER,
+            padding=8,
+            font=("Arial", 11),
+        )
+        style.map(
+            "Dorm.TCombobox",
+            fieldbackground=[("readonly", self.INPUT)],
+            foreground=[("readonly", "white")],
+            selectbackground=[("readonly", self.INPUT)],
+            selectforeground=[("readonly", "white")],
+        )
+        self.option_add("*TCombobox*Listbox.background", self.CARD)
+        self.option_add("*TCombobox*Listbox.foreground", "white")
+        self.option_add("*TCombobox*Listbox.selectBackground", self.BLUE)
+
+    def _label(self, parent, text, size=11, color=None, bold=False, **kwargs):
+        return tk.Label(
+            parent,
+            text=text,
+            bg=parent.cget("bg"),
+            fg=color or self.TEXT,
+            font=("Arial", size, "bold" if bold else "normal"),
+            **kwargs,
+        )
+
+    def _entry(self, parent, textvariable, placeholder):
+        entry = tk.Entry(
+            parent,
+            textvariable=textvariable,
+            bg=self.INPUT,
+            fg="white",
+            insertbackground="white",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=self.BORDER,
+            highlightcolor=self.CYAN,
+            font=("Arial", 11),
+        )
+        # Подсказка показана отдельной подписью, чтобы не мешать вводу.
+        entry.configure(width=35)
+        return entry
+
+    def _build_ui(self):
+        root = tk.Frame(self, bg=self.BG, padx=24, pady=22)
+        root.pack(fill="both", expand=True)
+
+        header = tk.Frame(root, bg=self.BG)
+        header.pack(fill="x", pady=(0, 18))
+        title_area = tk.Frame(header, bg=self.BG)
+        title_area.pack(side="left", fill="both", expand=True)
+        self._label(title_area, "DormPay Dashboard", size=19, color="white", bold=True).pack(anchor="w")
+        self._label(title_area, "Система оплаты проживания и услуг", size=10, color=self.MUTED).pack(anchor="w", pady=(5, 0))
+
+        wallet = tk.Frame(header, bg="#2541b2", padx=14, pady=12)
+        wallet.pack(side="right")
+        self._label(wallet, "Виртуальный счет", size=9, color="#d0dcff").grid(row=0, column=0, sticky="w")
+        self._label(wallet, "", size=15, color="white", bold=True).destroy()
+        self.balance_label = tk.Label(wallet, textvariable=self.balance_var, bg="#2541b2", fg="white", font=("Arial", 15, "bold"))
+        self.balance_label.grid(row=1, column=0, sticky="w", pady=(3, 0))
+        tk.Button(
+            wallet, text="+ Пополнить", command=self.top_up_balance,
+            bg="#4668d2", fg="white", activebackground="#5f80f0",
+            activeforeground="white", relief="flat", cursor="hand2",
+            padx=10, pady=6, font=("Arial", 10, "bold"),
+        ).grid(row=0, column=1, rowspan=2, padx=(15, 0))
+
+        form_card = tk.Frame(root, bg=self.CARD, padx=20, pady=18,
+                             highlightbackground="#1e2a5e", highlightthickness=1)
+        form_card.pack(fill="x", pady=(0, 14))
+        self._label(form_card, "Параметры проживания", size=12, color=self.CYAN, bold=True).pack(anchor="w", pady=(0, 14))
+
+        form = tk.Frame(form_card, bg=self.CARD)
+        form.pack(fill="x")
+        form.columnconfigure(1, weight=1)
+
+        def row_label(text, row):
+            self._label(form, text).grid(row=row, column=0, sticky="w", padx=(0, 14), pady=8)
+
+        row_label("Студент:", 0)
+        self._entry(form, self.fio_var, "Введите ФИО студента").grid(row=0, column=1, sticky="ew", pady=8, ipady=8)
+        row_label("Комната:", 1)
+        self._entry(form, self.room_var, "Номер комнаты").grid(row=1, column=1, sticky="ew", pady=8, ipady=8)
+        row_label("Тариф:", 2)
+        tariff = ttk.Combobox(form, textvariable=self.tariff_var, values=list(self.tariffs),
+                              state="readonly", style="Dorm.TCombobox")
+        tariff.grid(row=2, column=1, sticky="ew", pady=8)
+        row_label("Период:", 3)
+        self._entry(form, self.months_var, "От 1 до 12 месяцев").grid(row=3, column=1, sticky="ew", pady=8, ipady=8)
+        row_label("Опции:", 4)
+        tk.Checkbutton(
+            form, text="Высокоскоростной интернет (+300 ₽ / мес.)", variable=self.internet_var,
+            bg=self.CARD, fg=self.TEXT, selectcolor=self.INPUT,
+            activebackground=self.CARD, activeforeground=self.TEXT,
+            font=("Arial", 10), anchor="w",
+        ).grid(row=4, column=1, sticky="w", pady=(6, 2))
+        tk.Checkbutton(
+            form, text="Безлимитная прачечная (+200 ₽ / мес.)", variable=self.laundry_var,
+            bg=self.CARD, fg=self.TEXT, selectcolor=self.INPUT,
+            activebackground=self.CARD, activeforeground=self.TEXT,
+            font=("Arial", 10), anchor="w",
+        ).grid(row=5, column=1, sticky="w", pady=(0, 6))
+
+        buttons = tk.Frame(root, bg=self.BG)
+        buttons.pack(fill="x", pady=(0, 14))
+        buttons.columnconfigure((0, 1), weight=1)
+        tk.Button(
+            buttons, text="Рассчитать стоимость", command=self.calculate_payment,
+            bg="#182252", fg=self.CYAN, activebackground="#202d6b",
+            activeforeground=self.CYAN, relief="flat", cursor="hand2",
+            font=("Arial", 11, "bold"), pady=12,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        tk.Button(
+            buttons, text="Оплатить со счета", command=self.process_payment,
+            bg=self.BLUE, fg="white", activebackground="#4d75f7",
+            activeforeground="white", relief="flat", cursor="hand2",
+            font=("Arial", 11, "bold"), pady=12,
+        ).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        result_card = tk.Frame(root, bg=self.CARD, padx=20, pady=18,
+                               highlightbackground="#1e2a5e", highlightthickness=1)
+        result_card.pack(fill="both", expand=True)
+        self._label(result_card, "Детализация платежа", size=12, color=self.CYAN, bold=True).pack(anchor="w", pady=(0, 12))
+        tk.Label(
+            result_card, textvariable=self.result_var, bg=self.CARD, fg="#e2e8f0",
+            font=("Arial", 11), anchor="nw", justify="left", wraplength=555,
+        ).pack(anchor="w", fill="x")
+
+    @staticmethod
+    def money(value):
+        return f"{value:,}".replace(",", " ") + " ₽"
+
+    def _update_balance(self):
+        self.balance_var.set(self.money(self.balance))
+
+    def top_up_balance(self):
+        amount = simpledialog.askinteger(
+            "Пополнение виртуального счета",
+            "Введите сумму пополнения (от 100 до 50 000 ₽):",
+            parent=self, initialvalue=1000, minvalue=100, maxvalue=50000,
+        )
+        if amount is not None:
+            self.balance += amount
+            self._update_balance()
+            messagebox.showinfo(
+                "Счет пополнен",
+                f"Баланс успешно пополнен на {self.money(amount)}.\n"
+                f"Текущий баланс: {self.money(self.balance)}.",
+                parent=self,
+            )
+
+    def validate_and_get_data(self):
+        fio = self.fio_var.get().strip()
+        room = self.room_var.get().strip()
+        months_text = self.months_var.get().strip()
+
+        if not fio:
+            messagebox.showwarning("Ошибка проверки данных", "Пожалуйста, укажите ФИО студента.", parent=self)
+            return None
+        if not room.isascii() or not room.isdecimal():
+            messagebox.showwarning("Ошибка проверки данных", "Номер комнаты должен состоять только из цифр.", parent=self)
+            return None
+        if not months_text.isascii() or not months_text.isdecimal():
+            messagebox.showwarning("Ошибка проверки данных", "Количество месяцев должно быть целым числом.", parent=self)
+            return None
+        months = int(months_text)
+        if not 1 <= months <= 12:
+            messagebox.showwarning("Ошибка проверки данных", "Укажите период оплаты от 1 до 12 месяцев.", parent=self)
+            return None
+
+        base_rate = self.tariffs[self.tariff_var.get()]
+        extras = (300 if self.internet_var.get() else 0) + (200 if self.laundry_var.get() else 0)
+        total_per_month = base_rate + extras
+        return {
+            "fio": fio,
+            "room": room,
+            "months": months,
+            "total_per_month": total_per_month,
+            "total_sum": total_per_month * months,
+        }
+
+    def _show_calculation(self, data):
+        total = data["total_sum"]
+        status = (
+            "Достаточно средств на счете"
+            if self.balance >= total
+            else f"Не хватает {self.money(total - self.balance)} — пополните счет"
+        )
+        self.result_var.set(
+            f"Плательщик: {data['fio']} (комната №{data['room']})\n"
+            f"Ежемесячный платеж: {self.money(data['total_per_month'])} × {data['months']} мес.\n"
+            f"Итого к оплате: {self.money(total)}\n"
+            f"Статус баланса: {status}"
+        )
+
+    def calculate_payment(self):
+        data = self.validate_and_get_data()
+        if data is not None:
+            self._show_calculation(data)
+
+    def process_payment(self):
+        data = self.validate_and_get_data()
+        if data is None:
+            return
+        self._show_calculation(data)
+        total = data["total_sum"]
+
+        if self.balance < total:
+            missing = total - self.balance
+            answer = messagebox.askyesno(
+                "Недостаточно средств",
+                f"На виртуальном счете не хватает {self.money(missing)}.\n"
+                "Хотите пополнить счет сейчас?",
+                parent=self,
+            )
+            if answer:
+                self.top_up_balance()
+                self._show_calculation(data)
+            return
+
+        answer = messagebox.askyesno(
+            "Подтверждение списания",
+            f"Списать {self.money(total)} с виртуального счета?\n"
+            f"Студент: {data['fio']} (комн. №{data['room']})",
+            parent=self,
+        )
+        if answer:
+            self.balance -= total
+            self._update_balance()
+            self.result_var.set(
+                f"ОПЛАЧЕНО: {self.money(total)}\n"
+                f"Студент: {data['fio']} (комната №{data['room']}), "
+                f"срок: {data['months']} мес.\n"
+                f"Остаток на виртуальном счете: {self.money(self.balance)}"
+            )
+            messagebox.showinfo(
+                "Оплата выполнена",
+                f"Платеж на сумму {self.money(total)} успешно проведен!\n"
+                f"Новый баланс: {self.money(self.balance)}.",
+                parent=self,
+            )
+
+
+if __name__ == "__main__":
+    app = DormPaymentApp()
+    app.mainloop()
+
