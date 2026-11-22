@@ -1,7 +1,9 @@
 import pandas as pd
 import numpy as np
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-df = pd.read_csv(r"C:\Users\Msi\Desktop\titanic\titanic.csv", encoding='windows-1251')#загрузка файла в Data Frame
+df = pd.read_csv(r"C:\Users\Msi\Desktop\programming\titanic\titanic.csv", encoding='windows-1251')#загрузка файла в Data Frame
 
 #Часть II
 n = int(input("Введите количество строк для вывода: "))
@@ -57,11 +59,101 @@ age_male =np.mean(age[sex == 'male'])
 print(f"Средний возраст мужчин:{age_male:.1f}")
 age_female =np.mean(age[sex == 'female'])
 print(f"Средний возраст женщин:{age_female:.1f}")
-print(f"Выжившие мужчины (возраст) : {df[(df['Sex'] == 'male') & (df['Survived'] == 1)]['Age'].mean():.1f}")##сросить
-print(f"Погибшие мужчины (возраст) : {df[(df['Sex'] == 'male') & (df['Survived'] == 0)]['Age'].mean():.1f}")
-print(f"Выжившие женщины (возраст) : {df[(df['Sex'] == 'female') & (df['Survived'] == 1)]['Age'].mean():.1f}")
-print(f"Погибшие женщины (возраст) : {df[(df['Sex'] == 'female') & (df['Survived'] == 0)]['Age'].mean():.1f}")##спросить
 print (f"Минимальная стоимость билета : {np.nanmin(fare)}")
 print (f"Максимальная стоимость билета : {np.nanmax(fare)}")
 print (f"Средняя стоимость билета : {np.nanmean(fare):.2f}")
 print (f"Стандартное отклонение возраста : {np.std(age):.2f}")
+
+age_male_surv = np.mean(age[(sex == 'male') & (survived == 1)])
+age_male_died = np.mean(age[(sex == 'male') & (survived == 0)])
+age_female_surv = np.mean(age[(sex == 'female') & (survived == 1)])
+age_female_died = np.mean(age[(sex == 'female') & (survived == 0)])
+
+# Создаем сводную таблицу для наглядного сравнения мужчин и женщин
+numpy_table = pd.DataFrame({
+    'Показатель': [
+        'Процент выживших (%)', 
+        'Средний возраст (общий)', 
+        'Средний возраст выживших', 
+        'Средний возраст погибших'
+    ],
+    'Мужчины': [
+        round(male_survived_pct, 2), 
+        round(age_male, 1), 
+        round(age_male_surv, 1), 
+        round(age_male_died, 1)
+    ],
+    'Женщины': [
+        round(female_survived_pct, 2), 
+        round(age_female, 1), 
+        round(age_female_surv, 1), 
+        round(age_female_died, 1)
+    ]
+})
+
+print("\nТаблица сравнение мужчин и женщин")
+print(numpy_table)
+
+#Часть V
+#Фильтрация данных
+print("\n=== Фильтрация данных ===")
+
+#Мужчины старше 30 лет, 1 класс
+res1 = df[(df['Sex'] == 'male') & (df['Age'] > 30) & (df['Pclass'] == 1)]
+print(f"\nНайдено пассажиров: {len(res1)}")
+print(res1.head(10))
+
+#Моложе 18 лет ИЛИ женщины, которые при этом выжили
+res2 = df[((df['Age'] < 18) | (df['Sex'] == 'female')) & (df['Survived'] == 1)]
+print(f"\nВыживших детей или женщин: {len(res2)}")
+
+#Пассажиры 3 класса, билет которых дороже среднего в этом классе
+mean_fare_3 = df[df['Pclass'] == 3]['Fare'].mean()
+res3 = df[(df['Pclass'] == 3) & (df['Fare'] > mean_fare_3)]
+print(f"\nПассажиров 3 класса с билетом дороже среднего ({mean_fare_3:.2f}): {len(res3)}")
+
+#Пассажиры от 20 до 40 лет включительно из порта S
+res4 = df[(df['Age'] >= 20) & (df['Age'] <= 40) & (df['Embarked'] == 'S')]
+print(f"\nПассажиров от 20 до 40 лет из порта S: {len(res4)}")
+
+#Часть VI
+print("\n=== Группировка и агрегирование ===")
+
+#Группировка по классу и полу
+stats_by_class_sex = df.groupby(['Pclass', 'Sex']).agg(
+    Количество=('PassengerId', 'count'),
+    Средний_возраст=('Age', 'mean'),
+    Процент_выживших=('Survived', lambda x: x.mean() * 100),
+    Средняя_цена=('Fare', 'mean')
+).reset_index()
+
+print("\nСтатистика по классу и полу:")
+print(stats_by_class_sex)
+
+#Группировка по порту посадки
+stats_by_embarked = df.groupby('Embarked').agg(
+    Количество=('PassengerId', 'count'),
+    Процент_выживших=('Survived', lambda x: x.mean() * 100)
+).reset_index()
+
+print("\nСтатистика по порту посадки:")
+print(stats_by_embarked)
+
+#Класс с наибольшей долей выживших
+best_class = df.groupby('Pclass')['Survived'].mean().idxmax()
+print(f"\nКласс с наибольшей долей выживших: {best_class}")
+
+#Часть VII
+print("\n=== Сохранение результатов ===")
+
+#Сохраняем обработанный DataFrame
+df.to_csv(r"C:\Users\Msi\Desktop\programming\titanic\titanic_processed.csv", index=False)
+print("Файл titanic_processed.csv сохранен.")
+
+#Сохраняем результаты группировки
+stats_by_class_sex.to_csv(r"C:\Users\Msi\Desktop\programming\titanic\titanic_statistics.csv", index=False)
+print("Файл titanic_statistics.csv сохранен.")
+
+#Повторная загрузка для проверки
+check_df = pd.read_csv(r"C:\Users\Msi\Desktop\programming\titanic\titanic_processed.csv")
+print(f"Проверка пройдена! Размер загруженного файла: {check_df.shape}")
